@@ -1,0 +1,2 @@
+writeup
+1. compute the area of the triangle: Heron's formula A = (p(p-a)(p-b)(p-c))^0.5

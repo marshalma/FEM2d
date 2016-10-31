@@ -10,9 +10,9 @@ video = [];
 
 switch(scene)
 	case 0
-		nTiles = 1; % Number of tiles in x and y
+		nTiles = 2; % Number of tiles in x and y
 		dt = 1e-2; % time step
-		tEnd = 1.0; % end time
+		tEnd = 5.0; % end time
 		drawHz = 10; % refresh rate
 		grav = [0 -9.81]'; % gravity
 		rho = 1e0; % area density
@@ -24,8 +24,8 @@ end
 
 % Convert to lambda and mu
 % ### TODO ###
-lambda = 0;
-mu = 0;
+lambda = E*nu / ((1+nu)*(1-2*nu));
+mu = E / (2*(1+nu));
 
 % Creates triangles from a regular grid of nodes
 [nodes,tris] = createSquare(nTiles);
@@ -48,15 +48,27 @@ for k = 1 : nTris
 	Xa = nodes(tri(1)).X;
 	Xb = nodes(tri(2)).X;
 	Xc = nodes(tri(3)).X;
-	triMass = 0;
+    L1 = norm(Xa-Xb, 2);
+    L2 = norm(Xc-Xb, 2);
+    L3 = norm(Xc-Xa, 2);
+    LL = (L1 + L2 + L3) / 2;
+    area = sqrt(LL*(LL-L1)*(LL-L2)*(LL-L3));
+	triMass = rho * area / 3;
 	nodes(tri(1)).m = nodes(tri(1)).m + triMass;
 	nodes(tri(2)).m = nodes(tri(2)).m + triMass;
 	nodes(tri(3)).m = nodes(tri(3)).m + triMass;
+    
+    % compute the inverse for computing deformation matrix
+    Xa = nodes(tris(k).nodes(1)).X;
+    Xb = nodes(tris(k).nodes(2)).X;
+    Xc = nodes(tris(k).nodes(3)).X;
+    tris(k).inverseMatrix = inv([Xb(1)-Xa(1), Xc(1)-Xa(1); Xb(2)-Xa(2), Xc(2)-Xa(2)]);
+    
 end
 
 % Simulation loop
 t0 = -inf;
-for t = 0 : dt : tEnd;
+for t = 0 : dt : tEnd
 	% Draw scene
 	if t - t0 > 1 / drawHz
 		draw(t,nodes,tris);
@@ -70,9 +82,41 @@ for t = 0 : dt : tEnd;
 	
 	% FEM force
 	% ### TODO ###
+    for k = 1 : nTris
+        triNodes = tris(k).nodes;
+        nodeA = nodes(triNodes(1));
+        nodeB = nodes(triNodes(2));
+        nodeC = nodes(triNodes(3));
+        xa = nodeA.x;
+        xb = nodeB.x;
+        xc = nodeC.x;
+        F = [xb(1)-xa(1), xc(1)-xa(1); xb(2)-xa(2), xc(2)-xa(2)] ...
+            * tris(k).inverseMatrix;
+        epsilon = 0.5 * (F * F' - eye(2));
+        P = F*(2*mu*epsilon + lambda*trace(epsilon)*eye(2));
+        sigma = P*F/det(F);
+        edge1 = xb-xa;
+        edge2 = xc-xb;
+        edge3 = xa-xc;
+        f1 = sigma * [-edge1(2) edge1(1)]';
+        f2 = sigma * [-edge2(2) edge2(1)]';
+        f3 = sigma * [-edge3(2) edge3(1)]';
+        nodes(triNodes(1)).f = nodes(triNodes(1)).f + f1 / 2 + f3 / 2;
+        nodes(triNodes(2)).f = nodes(triNodes(2)).f + f1 / 2 + f2 / 2;
+        nodes(triNodes(3)).f = nodes(triNodes(3)).f + f2 / 2 + f3 / 2;
+        
+    end
 	
 	% Integrate velocity and position
 	% ### TODO ###
+    for k = 1 : nNodes
+        if nodes(k).fixed == 1
+            continue
+        end
+        % using implicit damping
+        nodes(k).v = (nodes(k).m * nodes(k).v + dt * nodes(k).f) / (nodes(k).m + dt * damping * nodes(k).m);
+        nodes(k).x = nodes(k).x + nodes(k).v * dt;
+    end
 	
 end
 
